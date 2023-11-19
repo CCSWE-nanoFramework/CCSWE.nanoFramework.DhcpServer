@@ -24,11 +24,23 @@
     <Compile Include="IPAddressLease.cs" />
     <Compile Include="DhcpMessage.cs" />
     <Compile Include="IPAddressPool.cs" />
+    <Compile Include="Message.cs" />
+    <Compile Include="MessageBuilder.cs" />
+    <Compile Include="Converter.cs" />
+    <Compile Include="MessageIndex.cs" />
     <Compile Include="MessageType.cs" />
     <Compile Include="Operation.cs" />
+    <Compile Include="Options\OptionBase.cs" />
+    <Compile Include="Options\OptionCollection.cs" />
+    <Compile Include="Options\TimeSpanOption.cs" />
+    <Compile Include="Options\StringOption.cs" />
+    <Compile Include="Options\UnknownOption.cs" />
     <Compile Include="OptionCode.cs" />
     <Compile Include="DhcpServer.cs" />
     <Compile Include="HardwareType.cs" />
+    <Compile Include="Options\IOption.cs" />
+    <Compile Include="Options\MessageTypeOption.cs" />
+    <Compile Include="Options\IPAddressOption.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -1,11 +1,14 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
+﻿using System;
 
 namespace CCSWE.nanoFramework.DhcpServer
 {
     /// <summary>
     /// Hardware type.
     /// </summary>
+    /// <remarks>
+    /// IANA list https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
+    /// </remarks>
+    [Obsolete("Knowing these values provides no benefit for our use case")]
     public enum HardwareType
     {
         /// <summary>Ethernet.</summary>

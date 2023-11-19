@@ -1,21 +1,23 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
-
-namespace CCSWE.nanoFramework.DhcpServer
+﻿namespace CCSWE.nanoFramework.DhcpServer
 {
     /// <summary>
-    /// DHCP Operation.
+    /// Represents DHCP operation (op) codes used in a <see cref="Message"/>.
     /// </summary>
-    public enum Operation : byte
+    internal enum Operation : byte
     {
         /// <summary>
-        /// Boot request.
+        /// The operation code has not been set.
         /// </summary>
-        BootRequest = 0x01,
+        NotSet = 0,
 
         /// <summary>
-        /// Boot reply.
+        /// Boot request (BOOTREQUEST) operation code.
         /// </summary>
-        BootReply
+        BootRequest = 1,
+
+        /// <summary>
+        /// Boot reply (BOOTREPLY) operation code.
+        /// </summary>
+        BootReply = 2
     }
 }

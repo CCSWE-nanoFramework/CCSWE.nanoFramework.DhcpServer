@@ -1,7 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
-
-using System;
+﻿using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
@@ -11,7 +8,8 @@ namespace CCSWE.nanoFramework.DhcpServer
     /// <summary>
     /// DHCP Message class.
     /// </summary>
-    public class DhcpMessage
+    [Obsolete("Switch to new Message")]
+    internal class DhcpMessage
     {
         // Based on RFC2131 I think this value may be incorrect:
         //
@@ -185,7 +183,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                     return (MessageType)data[0];
                 }
 
-                return MessageType.Unknown;
+                return MessageType.NotSet;
             }
         }
 
@@ -206,13 +204,13 @@ namespace CCSWE.nanoFramework.DhcpServer
         }
 
         /// <summary>
-        /// Gets the requested IP address. <see cref="OptionCode.RequestedIpAddress"/>
+        /// Gets the requested IP address. <see cref="OptionCode.RequestedIPAddress"/>
         /// </summary>
         public IPAddress RequestedIpAddress
         {
             get
             {
-                if (TryGetOption(OptionCode.RequestedIpAddress, out var data))
+                if (TryGetOption(OptionCode.RequestedIPAddress, out var data))
                 {
                     return new IPAddress(data);
                 }

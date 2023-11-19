@@ -1,7 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
-
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -48,6 +45,7 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private string FormatLogMessage(string message) => $"[{nameof(DhcpServer)}] {message}";
 
+        // TODO: Switch to new Message
         private void HandleDiscoverMessage(DhcpMessage message)
         {
             if (!_addressPool.IsAddressAvailable())
@@ -237,6 +235,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                     if (bytes > 0)
                     {
                         var message = new DhcpMessage(ref buffer);
+                        var message2 = MessageBuilder.Parse(buffer);
 
                         // Only response to requests
                         if (message.Operation != Operation.BootRequest)
