@@ -10,6 +10,8 @@
 
         public byte[] GetBytes();
 
+        public string ToString();
+
         // TODO: Report bug with default properties
         //public uint OptionLength => (uint)(Length + 2);
         // TODO: And methods?

@@ -7,5 +7,7 @@
         }
 
         public UnknownOption(OptionCode code, byte[] data) : this((byte)code, data) { }
+
+        public override string ToString() => ToString("??");
     }
 }

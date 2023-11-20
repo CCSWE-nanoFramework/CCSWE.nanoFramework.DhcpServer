@@ -2,16 +2,18 @@
 
 namespace CCSWE.nanoFramework.DhcpServer.Options
 {
-    internal class IPAddressOption: OptionBase
+    internal class IPAddressOption : OptionBase
     {
         private IPAddress? _value;
 
-        public IPAddressOption(byte code, byte[] data): base(code, data)
+        public IPAddressOption(byte code, byte[] data) : base(code, data)
         {
             Ensure.IsValid(nameof(data), data.Length == 4);
         }
 
-        public IPAddressOption(OptionCode code, byte[] data): this((byte)code, data) { }
+        public IPAddressOption(OptionCode code, byte[] data) : this((byte)code, data)
+        {
+        }
 
         public IPAddressOption(OptionCode code, IPAddress value) : this(code, Converter.GetBytes(value))
         {
@@ -31,8 +33,11 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             {
                 OptionCode.RequestedIPAddress => true,
                 OptionCode.ServerIdentifier => true,
+                OptionCode.SubnetMask => true,
                 _ => false
             };
         }
+
+        public override string ToString() => ToString(Deserialize());
     }
 }

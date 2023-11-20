@@ -6,26 +6,9 @@ namespace CCSWE.nanoFramework.DhcpServer
 {
     internal class MessageBuilder
     {
-        public static Message CreateAck(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, TimeSpan leaseTime, params IOption[] options)
+        public static Message CreateAck(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
         {
-            Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
-
-            const MessageType responseType = MessageType.Ack;
-
-            var requestType = request.MessageType;
-            var message = CreateResponse(request, responseType, serverIdentifier, yourIPAddress);
-
-            message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
-
-            foreach (var option in options)
-            {
-                if (IsOptionAllowedInResponse(requestType, responseType, option))
-                {
-                    message.Options.Add(option);
-                }
-            }
-
-            return message;
+            return CreateResponse(request, MessageType.Ack, serverIdentifier, yourIPAddress, subnetMask, leaseTime, options);
         }
 
         public static Message CreateNak(Message request, IPAddress serverIdentifier)
@@ -33,26 +16,9 @@ namespace CCSWE.nanoFramework.DhcpServer
             return CreateResponse(request, MessageType.Nak, serverIdentifier, IPAddress.Any);
         }
 
-        public static Message CreateOffer(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, TimeSpan leaseTime, params IOption[] options)
+        public static Message CreateOffer(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
         {
-            Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
-
-            const MessageType responseType = MessageType.Offer;
-          
-            var requestType = request.MessageType;
-            var message = CreateResponse(request, responseType, serverIdentifier, yourIPAddress);
-
-            message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
-
-            foreach (var option in options)
-            {
-                if (IsOptionAllowedInResponse(requestType, responseType, option))
-                {
-                    message.Options.Add(option);
-                }
-            }
-
-            return message;
+            return CreateResponse(request, MessageType.Offer, serverIdentifier, yourIPAddress, subnetMask, leaseTime, options);
         }
 
         /// <summary>
@@ -73,16 +39,55 @@ namespace CCSWE.nanoFramework.DhcpServer
                 Hops = 0,
                 TransactionId = request.TransactionId,
                 SecondsElapsed = 0,
+                Flags = request.Flags,
                 ClientIPAddress = IPAddress.Any,
                 YourIPAddress = MessageType.Nak == responseType ? IPAddress.Any : yourIPAddress,
                 ServerIPAddress = IPAddress.Any,
-                Flags = request.Flags,
                 GatewayIPAddress = request.GatewayIPAddress,
                 HardwareAddress = request.HardwareAddress,
+                MagicCookie = request.MagicCookie,
             };
 
             message.Options.Add(new MessageTypeOption(responseType));
             message.Options.Add(new IPAddressOption(OptionCode.ServerIdentifier, serverIdentifier));
+
+            return message;
+        }
+
+        private static Message CreateResponse(Message request, MessageType responseType, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
+        {
+            Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
+
+            var message = CreateResponse(request, responseType, serverIdentifier, yourIPAddress);
+            var requestType = request.MessageType;
+
+            message.Options.Add(new IPAddressOption(OptionCode.SubnetMask, subnetMask));
+            message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
+            message.Options.Add(new TimeSpanOption(OptionCode.RenewalTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.5))));
+            message.Options.Add(new TimeSpanOption(OptionCode.RebindingTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.875))));
+
+            foreach (var option in options)
+            {
+                if (!message.Options.Contains(option.Code) && IsOptionAllowedInResponse(requestType, responseType, option))
+                {
+                    message.Options.Add(option);
+                }
+            }
+
+            /*
+            foreach (var value in request.Options)
+            {
+                if (value is not IOption option)
+                {
+                    continue;
+                }
+
+                if (!message.Options.Contains(option.Code) && IsOptionAllowedInResponse(requestType, responseType, option))
+                {
+                    message.Options.Add(option);
+                }
+            }
+            */
 
             return message;
         }
@@ -129,8 +134,8 @@ namespace CCSWE.nanoFramework.DhcpServer
                 Options = OptionCollection.Parse(data)
             };
 
-            Converter.CopyTo(data, MessageIndex.HardwareAddress, message.HardwareAddress);
-            Converter.CopyTo(data, MessageIndex.MagicCookie, message.MagicCookie);
+            Converter.CopyTo(data, MessageIndex.HardwareAddress, message.HardwareAddress, 0, message.HardwareAddress.Length);
+            Converter.CopyTo(data, MessageIndex.MagicCookie, message.MagicCookie, 0, message.MagicCookie.Length);
 
             return message;
         }

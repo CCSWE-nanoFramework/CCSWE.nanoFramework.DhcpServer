@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using CCSWE.nanoFramework.DhcpServer.Options;
 using Microsoft.Extensions.Logging;
 
 namespace CCSWE.nanoFramework.DhcpServer
@@ -45,21 +46,21 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private string FormatLogMessage(string message) => $"[{nameof(DhcpServer)}] {message}";
 
-        // TODO: Switch to new Message
-        private void HandleDiscoverMessage(DhcpMessage message)
+        private void HandleDiscoverMessage(Message message)
         {
+            // TODO: Need to check this logic
+            // TODO: Should check pool for previous address matched to MAC address
             if (!_addressPool.IsAddressAvailable())
             {
                 Log(LogLevel.Trace, "No more addresses available.");
                 return;
             }
 
-            var hardwareAddress = BitConverter.ToString(message.ClientHardwareAddress);
             IPAddress? yourIp = null;
 
             // Do we have an option asking for a specific IP address?
-            var requestedIpAddress = message.RequestedIpAddress;
-            if (!requestedIpAddress.Equals(IPAddress.Any) && _addressPool.IsLeasedTo(requestedIpAddress, hardwareAddress))
+            var requestedIpAddress = message.RequestedIPAddress;
+            if (!requestedIpAddress.Equals(IPAddress.Any) && _addressPool.IsLeasedTo(requestedIpAddress, message.HardwareAddressString))
             {
                 yourIp = requestedIpAddress;
             }
@@ -68,7 +69,7 @@ namespace CCSWE.nanoFramework.DhcpServer
 
             if (yourIp is not null)
             {
-                var offer = message.Offer(yourIp, _mask, _serverAddress, GetAdditionalOptions());
+                var offer = MessageBuilder.CreateOffer(message, _serverAddress, yourIp, _mask, TimeSpan.FromMinutes(30)).GetBytes();
                 _responseSocket.Send(offer);
             }
             else
@@ -77,8 +78,21 @@ namespace CCSWE.nanoFramework.DhcpServer
             }
         }
 
-        private void HandleRequestMessage(DhcpMessage message)
+        private void HandleRequestMessage(Message message)
         {
+            // TODO: Need to check this logic
+
+            /*
+               ---------------------------------------------------------------------
+               |              |INIT-REBOOT  |SELECTING    |RENEWING     |REBINDING |
+               ---------------------------------------------------------------------
+               |broad/unicast |broadcast    |broadcast    |unicast      |broadcast |
+               |server-ip     |MUST NOT     |MUST         |MUST NOT     |MUST NOT  |
+               |requested-ip  |MUST         |MUST         |MUST NOT     |MUST NOT  |
+               |ciaddr        |zero         |zero         |IP address   |IP address|
+               ---------------------------------------------------------------------
+            */
+
             // TODO: Handle this case -> https://github.com/jpmikkers/DHCPServer/blob/d224f1c37dcb9b4352cd3741be46a8e3eee5dcb9/DHCPServer/Library/DHCPServer.cs#L914
             // no server identifier: the message is a request to verify or extend an existing lease
             // Received REQUEST without server identifier, client is INIT-REBOOT, RENEWING or REBINDING
@@ -90,15 +104,13 @@ namespace CCSWE.nanoFramework.DhcpServer
                 return;
             }
 
-            var hardwareAddress = BitConverter.ToString(message.ClientHardwareAddress);
-
-            var requestSucceeded = _addressPool.IsLeased(message.RequestedIpAddress)
-                ? _addressPool.Renew(message.RequestedIpAddress, hardwareAddress)
-                : _addressPool.Request(message.RequestedIpAddress, hardwareAddress, TimeSpan.FromMinutes(30));
+            var requestSucceeded = _addressPool.IsLeased(message.RequestedIPAddress)
+                ? _addressPool.Renew(message.RequestedIPAddress, message.HardwareAddressString)
+                : _addressPool.Request(message.RequestedIPAddress, message.HardwareAddressString, TimeSpan.FromMinutes(30));
 
             _responseSocket.Send(requestSucceeded
-                ? message.Acknowledge(message.RequestedIpAddress, _mask, _serverAddress, GetAdditionalOptions())
-                : message.NotAcknowledge());
+                ? MessageBuilder.CreateAck(message, _serverAddress, message.RequestedIPAddress, _mask, TimeSpan.FromMinutes(30), new StringOption(OptionCode.CaptivePortal, CaptivePortalUrl)).GetBytes()
+                : MessageBuilder.CreateNak(message, _serverAddress).GetBytes());
         }
 
         private void Log(LogLevel logLevel, string message, Exception? exception = null)
@@ -124,11 +136,13 @@ namespace CCSWE.nanoFramework.DhcpServer
             _logger.Log(logLevel, exception, FormatLogMessage(message));
         }
 
-        private void LogMessage(DhcpMessage message)
+        private void LogMessage(Message message)
         {
 #if !DEBUG
             return;
 #endif
+
+            // TODO: Change this to a ToString on the message?
 
             var messageType = message.MessageType.AsString();
             var transactionId = message.TransactionId.ToString("X");
@@ -138,16 +152,36 @@ namespace CCSWE.nanoFramework.DhcpServer
                 Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Host name: {message.HostName}");
             }
 
-            Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Hardware address: {BitConverter.ToString(message.ClientHardwareAddress)}");
+            Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Hardware address: {message.HardwareAddressString}");
 
             if (message.LeaseTime > TimeSpan.Zero)
             {
                 Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Lease time: {message.LeaseTime}");
             }
 
-            if (!message.RequestedIpAddress.Equals(IPAddress.Any))
+            if (!message.ClientIPAddress.Equals(IPAddress.Any))
             {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Requested address: {message.RequestedIpAddress}");
+                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address: {message.ClientIPAddress}");
+            }
+
+            if (!message.YourIPAddress.Equals(IPAddress.Any))
+            {
+                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Your IP address: {message.YourIPAddress}");
+            }
+
+            if (!message.ServerIPAddress.Equals(IPAddress.Any))
+            {
+                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address:  {message.ClientIPAddress}");
+            }
+
+            if (!message.GatewayIPAddress.Equals(IPAddress.Any))
+            {
+                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address:  {message.ClientIPAddress}");
+            }
+
+            if (!message.RequestedIPAddress.Equals(IPAddress.Any))
+            {
+                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Requested IP address: {message.RequestedIPAddress}");
             }
 
             if (!message.ServerIdentifier.Equals(IPAddress.Any))
@@ -176,7 +210,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                     _mask = mask;
 
                     _requestSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    _requestSocket.Bind(new IPEndPoint(Broadcast, ServerPort));
+                    _requestSocket.Bind(new IPEndPoint(IPAddress.Loopback, ServerPort)); // TODO: This was broadcast instead of loopback
 
                     _responseSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
                     _responseSocket.Bind(new IPEndPoint(_serverAddress, 0));
@@ -221,6 +255,8 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private void RunServer()
         {
+            Log(LogLevel.Information, "Started");
+
             _islistening = true;
 
             // setup buffer to read data from socket
@@ -232,51 +268,56 @@ namespace CCSWE.nanoFramework.DhcpServer
                 {
                     var bytes = _requestSocket.Receive(buffer);
 
-                    if (bytes > 0)
+                    if (bytes <= 0)
                     {
-                        var message = new DhcpMessage(ref buffer);
-                        var message2 = MessageBuilder.Parse(buffer);
-
-                        // Only response to requests
-                        if (message.Operation != Operation.BootRequest)
-                        {
-                            continue;
-                        }
-
-                        LogMessage(message);
-
-                        // TODO: Handle Release and Renew
-                        // TODO: Handle lease time
-                        switch (message.MessageType)
-                        {
-                            case MessageType.Discover:
-                                HandleDiscoverMessage(message);
-                                break;
-
-                            case MessageType.Request:
-                                HandleRequestMessage(message);
-                                break;
-
-                            default:
-                                Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType}' received from host: {message.HostName}");
-                                break;
-                        }
+                        continue;
                     }
-                    else
+
+                    var message = MessageBuilder.Parse(buffer);
+
+                    // Only response to requests
+                    if (message.Operation != Operation.BootRequest)
                     {
-                        // free cpu time if no bytes in socket
-                        Thread.Sleep(200);
+                        continue;
+                    }
+
+                    LogMessage(message);
+
+                    // TODO: Handle Release and Renew
+                    // TODO: Handle lease time
+                    switch (message.MessageType)
+                    {
+                        case MessageType.Discover:
+                            HandleDiscoverMessage(message);
+                            break;
+
+                        case MessageType.Request:
+                            HandleRequestMessage(message);
+                            break;
+
+                        default:
+                            Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType}' received from host: {message.HostName}");
+                            break;
                     }
                 }
-                catch
+                catch (Exception exception)
                 {
                     //// Just pass this, we want to make sure that this loop always works properly.
+                    Log(LogLevel.Error, $"Unhandled exception: {exception.Message}", exception);
                 }
             }
 
             try
             {
                 _requestSocket.Close();
+            }
+            catch
+            {
+                //// Make sure we catch everything coming in
+            }
+
+            try
+            {
                 _responseSocket.Close();
             }
             catch

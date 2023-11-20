@@ -36,8 +36,12 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             return code switch
             {
                 OptionCode.LeaseTime => true,
+                OptionCode.RebindingTime => true,
+                OptionCode.RenewalTime => true,
                 _ => false
             };
         }
+
+        public override string ToString() => ToString(Deserialize());
     }
 }

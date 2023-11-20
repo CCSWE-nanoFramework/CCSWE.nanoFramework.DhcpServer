@@ -30,9 +30,13 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             data[0] = Code;
             data[1] = Length;
 
-            Array.Copy(Data, 0, data, 2, Length);
+            Converter.CopyTo(Data, 0, data, 2, Length);
 
             return data;
         }
+
+        public abstract override string ToString();
+
+        protected string ToString(object value) => $"Option [{Code}] == {value} [{Length}]";
     }
 }

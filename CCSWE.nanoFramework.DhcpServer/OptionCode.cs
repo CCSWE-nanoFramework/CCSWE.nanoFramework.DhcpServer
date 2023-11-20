@@ -597,6 +597,7 @@
         /// 
         /// The code for this option is 58, and its length is 4.
         /// </summary>
+        /// <remarks>Recommended value is LeaseTime * 0.5</remarks>
         RenewalTime = 58,
 
         /// <summary>
@@ -610,6 +611,7 @@
         /// 
         /// The code for this option is 59, and its length is 4.
         /// </summary>
+        /// <remarks>Recommended value is LeaseTime * 0.875</remarks>
         RebindingTime = 59,
 
         /// <summary>

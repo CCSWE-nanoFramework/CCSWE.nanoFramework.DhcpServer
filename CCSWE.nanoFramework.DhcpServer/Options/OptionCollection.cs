@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
@@ -11,7 +12,7 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
     /// <remarks>
     /// The <see cref="OptionCollection"/> behaves like a dictionary and does not support multiple instances of the same <see cref="OptionCode"/>.
     /// </remarks>
-    internal class OptionCollection
+    internal class OptionCollection: IEnumerable
     {
         private int _length;
         private readonly object _lock = new();
@@ -27,6 +28,8 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
         /// </summary>
         public void Add(IOption option)
         {
+            Debug.WriteLine($"Adding {option}");
+
             lock (_lock)
             {
                 if (TryGet(option.Code, out var existing))
@@ -63,7 +66,7 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
                 var options = new byte[Length];
                 var index = 0;
 
-                foreach (var item in _options)
+                foreach (var item in this)
                 {
                     if (item is not IOption option)
                     {
@@ -73,11 +76,13 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
                     index += Converter.CopyTo(option.GetBytes(), options, index);
                 }
 
-                options[index + 1] = (byte)OptionCode.End;
+                options[index] = (byte)OptionCode.End;
 
                 return options;
             }
         }
+
+        public IEnumerator GetEnumerator() => _options.Values.GetEnumerator();
 
         public IPAddress GetOrDefault(OptionCode code, IPAddress defaultValue)
         {
@@ -131,7 +136,7 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             var length = options[index++];
 
             var data = new byte[length];
-            Array.Copy(options, index, data, 0, length);
+            Converter.CopyTo(options, index, data, 0, length);
 
             index += length;
 
@@ -143,6 +148,11 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             if (MessageTypeOption.IsKnownOption(code))
             {
                 return new MessageTypeOption(data);
+            }
+
+            if (ParameterRequestListOption.IsKnownOption(code))
+            {
+                return new ParameterRequestListOption(data);
             }
 
             if (StringOption.IsKnownOption(code))

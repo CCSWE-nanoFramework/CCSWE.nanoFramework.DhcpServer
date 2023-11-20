@@ -145,7 +145,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// contain the (decimal) values 99, 130, 83 and 99, respectively (this
         /// is the same magic cookie as is defined in RFC 1497 [17]).
         /// </remarks>
-        public byte[] MagicCookie { get; } = new byte[4];
+        public byte[] MagicCookie { get; init; } = new byte[4];
 
         /// <summary>
         /// The raw options data.
@@ -172,7 +172,7 @@ namespace CCSWE.nanoFramework.DhcpServer
             var data = new byte[MessageIndex.Options + Options.Length];
 
             Converter.CopyTo((byte)Operation, data, MessageIndex.Operation);
-            Converter.CopyTo(HardwareAddressType, data, MessageIndex.HardwareAddress);
+            Converter.CopyTo(HardwareAddressType, data, MessageIndex.HardwareAddressType);
             Converter.CopyTo(HardwareAddressLength, data, MessageIndex.HardwareAddressLength);
             Converter.CopyTo(Hops, data, MessageIndex.Hops);
             Converter.CopyTo(TransactionId, data, MessageIndex.TransactionId);
@@ -180,7 +180,7 @@ namespace CCSWE.nanoFramework.DhcpServer
             Converter.CopyTo(Flags, data, MessageIndex.Flags);
             Converter.CopyTo(ClientIPAddress, data, MessageIndex.ClientIPAddress);
             Converter.CopyTo(YourIPAddress, data, MessageIndex.YourIPAddress);
-            Converter.CopyTo(ServerIdentifier, data, MessageIndex.ServerIPAddress);
+            Converter.CopyTo(ServerIPAddress, data, MessageIndex.ServerIPAddress);
             Converter.CopyTo(GatewayIPAddress, data, MessageIndex.GatewayIPAddress);
             Converter.CopyTo(HardwareAddress, data, MessageIndex.HardwareAddress);
             Converter.CopyTo(MagicCookie, data, MessageIndex.MagicCookie);

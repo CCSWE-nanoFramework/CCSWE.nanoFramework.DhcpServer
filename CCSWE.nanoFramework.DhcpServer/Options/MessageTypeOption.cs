@@ -17,5 +17,7 @@
         public static bool IsKnownOption(byte code) => IsKnownOption((OptionCode)code);
 
         public static bool IsKnownOption(OptionCode code) => OptionCode.DhcpMessageType == code;
+
+        public override string ToString() => ToString(Deserialize().AsString());
     }
 }

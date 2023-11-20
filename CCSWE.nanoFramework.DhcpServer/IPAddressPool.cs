@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
@@ -64,6 +65,8 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private byte GetKey(IPAddress clientAddress)
         {
+            Debug.WriteLine($"GetKey: {clientAddress}");
+
             var clientAddressBytes = clientAddress.GetAddressBytes();
             var serverAddressBytes = _serverAddress.GetAddressBytes();
 
@@ -124,6 +127,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         public bool Request(IPAddress clientAddress, string hardwareAddress, TimeSpan leaseTime)
         {
             var key = GetKey(clientAddress);
+            // TODO: Should not be renewing here. Renewal requires a specific call.
             if (_leases.Contains(key))
             {
                 return Renew(clientAddress, hardwareAddress);

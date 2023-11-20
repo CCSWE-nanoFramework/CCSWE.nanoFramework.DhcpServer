@@ -7,43 +7,43 @@ namespace CCSWE.nanoFramework.DhcpServer
     internal class Converter
     {
         /// <summary>
-        /// Copies <paramref name="source"/> to <paramref name="destination"/> starting at <paramref name="index"/>.
+        /// Copies <paramref name="source"/> to <paramref name="destination"/> starting at <paramref name="destinationIndex"/>.
         /// </summary>
         /// <param name="source">The source data.</param>
         /// <param name="destination">The destination array.</param>
-        /// <param name="index">The start index.</param>
+        /// <param name="destinationIndex">The destinations index.</param>
         /// <returns>The number of bytes copied.</returns>
-        public static int CopyTo(byte source, byte[] destination, int index)
+        public static int CopyTo(byte source, byte[] destination, int destinationIndex)
         {
-            destination[index] = source;
+            destination[destinationIndex] = source;
             return 1;
         }
 
         /// <inheritdoc cref="CopyTo(byte,byte[],int)"/>
-        public static int CopyTo(byte[] source, byte[] destination, int index)
+        public static int CopyTo(byte[] source, byte[] destination, int destinationIndex)
         {
-            source.CopyTo(destination, index);
-            return source.Length;
+            Ensure.IsValid(nameof(destinationIndex), destination.Length - destinationIndex >= source.Length);
+            return CopyTo(source, 0, destination, destinationIndex, source.Length);
         }
 
         /// <inheritdoc cref="CopyTo(byte,byte[],int)"/>
-        public static int CopyTo(IPAddress source, byte[] destination, int index) => CopyTo(GetBytes(source), destination, index);
+        public static int CopyTo(IPAddress source, byte[] destination, int destinationIndex) => CopyTo(GetBytes(source), destination, destinationIndex);
 
         /// <inheritdoc cref="CopyTo(byte,byte[],int)"/>
-        public static int CopyTo(uint source, byte[] destination, int index) => CopyTo(GetBytes(source), destination, index);
+        public static int CopyTo(uint source, byte[] destination, int destinationIndex) => CopyTo(GetBytes(source), destination, destinationIndex);
 
         /// <inheritdoc cref="CopyTo(byte,byte[],int)"/>
-        public static int CopyTo(ushort source, byte[] destination, int index) => CopyTo(GetBytes(source), destination, index);
+        public static int CopyTo(ushort source, byte[] destination, int destinationIndex) => CopyTo(GetBytes(source), destination, destinationIndex);
 
-        public static int CopyTo(byte[] source, int sourceIndex, byte[] destination, int destinationIndex = 0, int length = 0)
+        public static int CopyTo(byte[] source, int sourceIndex, byte[] destination, int destinationIndex, int length)
         {
-            Array.Copy(source, sourceIndex, destination, destinationIndex, length > 0 ? length : destination.Length);
+            Array.Copy(source, sourceIndex, destination, destinationIndex, length);
             return length;
         }
 
         public static byte[] GetBytes(IPAddress value) => value.GetAddressBytes();
         public static byte[] GetBytes(string value) => Encoding.UTF8.GetBytes(value);
-        public static byte[] GetBytes(TimeSpan value) => BitConverter.GetBytes((int)value.TotalSeconds);
+        public static byte[] GetBytes(TimeSpan value) => GetBytes(value > TimeSpan.Zero ? (uint)value.TotalSeconds : 0);
         public static byte[] GetBytes(uint value) => BitConverter.GetBytes(value);
         public static byte[] GetBytes(ushort value) => BitConverter.GetBytes(value);
 

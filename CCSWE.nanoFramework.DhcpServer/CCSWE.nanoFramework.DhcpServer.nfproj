@@ -22,7 +22,6 @@
   <Import Project="$(NanoFrameworkProjectSystemPath)NFProjectSystem.props" Condition="Exists('$(NanoFrameworkProjectSystemPath)NFProjectSystem.props')" />
   <ItemGroup>
     <Compile Include="IPAddressLease.cs" />
-    <Compile Include="DhcpMessage.cs" />
     <Compile Include="IPAddressPool.cs" />
     <Compile Include="Message.cs" />
     <Compile Include="MessageBuilder.cs" />
@@ -30,6 +29,7 @@
     <Compile Include="MessageIndex.cs" />
     <Compile Include="MessageType.cs" />
     <Compile Include="Operation.cs" />
+    <Compile Include="Options\ParameterRequestListOption.cs" />
     <Compile Include="Options\OptionBase.cs" />
     <Compile Include="Options\OptionCollection.cs" />
     <Compile Include="Options\TimeSpanOption.cs" />

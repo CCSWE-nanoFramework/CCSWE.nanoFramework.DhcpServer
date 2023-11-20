@@ -29,5 +29,7 @@
                 _ => false
             };
         }
+
+        public override string ToString() => ToString(Deserialize());
     }
 }
