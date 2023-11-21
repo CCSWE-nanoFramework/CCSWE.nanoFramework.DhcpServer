@@ -43,7 +43,7 @@ namespace CCSWE.nanoFramework.DhcpServer
 
                     if (_leases[key] is IPAddressLease lease && lease.IsExpired())
                     {
-                        Debug.WriteLine($"Evicting {lease.ClientAddress}");
+                        //Debug.WriteLine($"Evicting {lease.ClientAddress}");
 
                         _leases.Remove(key);
                     }
@@ -72,6 +72,22 @@ namespace CCSWE.nanoFramework.DhcpServer
             }
         }
 
+        public IPAddressLease? GetLease(IPAddress address)
+        {
+            if (!IsValidAddress(address))
+            {
+                return null;
+            }
+
+            return _leases[GetKey(address)] as IPAddressLease;
+        }
+/*
+        public IPAddressLease? GetLease(IPAddress clientAddress, string hardwareAddress)
+        {
+            var lease = GetLease(clientAddress);
+            return lease?.HardwareAddress == hardwareAddress ? lease : null;
+        }
+*/
         private byte GetKey(IPAddress clientAddress)
         {
             var clientAddressBytes = clientAddress.GetAddressBytes();
@@ -112,7 +128,12 @@ namespace CCSWE.nanoFramework.DhcpServer
                 return false;
             }
 
-            return lease.HardwareAddress == hardwareAddress;
+            if (lease.HardwareAddress != hardwareAddress)
+            {
+                lease = null;
+            }
+
+            return lease is not null;
         }
 
         private bool IsValidAddress(IPAddress clientAddress)
@@ -141,16 +162,27 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         public IPAddressLease? Renew(IPAddress clientAddress, string hardwareAddress)
         {
+            if (!IsValidAddress(clientAddress))
+            {
+                return null;
+            }
+
             lock (_lock)
             {
-                if (!IsLeasedTo(clientAddress, hardwareAddress, out var lease))
+                var existingLease = GetLease(clientAddress);
+                if (existingLease is null)
                 {
                     return null;
                 }
 
-                lease.Renew();
+                if (existingLease.HardwareAddress != hardwareAddress)
+                {
+                    return null;
+                }
 
-                return lease;
+                existingLease.Renew();
+
+                return existingLease;
             }
         }
 
@@ -163,11 +195,14 @@ namespace CCSWE.nanoFramework.DhcpServer
 
             lock (_lock)
             {
-                if (!IsLeasedTo(clientAddress, hardwareAddress, out var lease))
+                var existingLease = GetLease(clientAddress);
+                if (existingLease is not null)
                 {
-                    lease = new IPAddressLease(clientAddress, hardwareAddress, leaseTime);
-                    _leases[GetKey(clientAddress)] = lease;
+                    return existingLease.HardwareAddress == hardwareAddress ? existingLease : null;
                 }
+
+                var lease = new IPAddressLease(clientAddress, hardwareAddress, leaseTime);
+                _leases[GetKey(clientAddress)] = lease;
 
                 return lease;
             }
