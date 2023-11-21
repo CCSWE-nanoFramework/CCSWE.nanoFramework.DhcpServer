@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
@@ -28,8 +27,6 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
         /// </summary>
         public void Add(IOption option)
         {
-            Debug.WriteLine($"Adding {option}");
-
             lock (_lock)
             {
                 if (TryGet(option.Code, out var existing))

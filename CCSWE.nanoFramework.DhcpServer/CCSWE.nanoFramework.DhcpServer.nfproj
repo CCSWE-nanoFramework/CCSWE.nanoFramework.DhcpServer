@@ -26,6 +26,7 @@
     <Compile Include="Message.cs" />
     <Compile Include="MessageBuilder.cs" />
     <Compile Include="Converter.cs" />
+    <Compile Include="MessageFlags.cs" />
     <Compile Include="MessageIndex.cs" />
     <Compile Include="MessageType.cs" />
     <Compile Include="Operation.cs" />

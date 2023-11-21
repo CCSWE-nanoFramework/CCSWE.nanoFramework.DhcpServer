@@ -2,7 +2,6 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using CCSWE.nanoFramework.DhcpServer.Options;
 using Microsoft.Extensions.Logging;
@@ -14,103 +13,238 @@ namespace CCSWE.nanoFramework.DhcpServer
     /// </summary>
     public sealed class DhcpServer : IDisposable
     {
+        private static readonly IPAddress DefaultSubnetMask = new(new byte[] { 255, 255, 255, 0 });
+
         // TODO: Replace with IPAddress.Broadcast when it's merged in
         private static readonly IPAddress Broadcast = new(new byte[] { 255, 255, 255, 255 });
 
         private const int ServerPort = 67;
         private const int ClientPort = 68;
 
-        private readonly ILogger? _logger;
+        private static readonly IPEndPoint BroadcastEndpoint = new(Broadcast, ClientPort);
 
-        private IPAddressPool? _addressPool;
+        private readonly IPAddressPool _addressPool;
+        private Timer? _addressPoolTimer;
+        private bool _disposed;
+        private readonly object _lock = new();
+        private readonly ILogger? _logger;
+        private Thread? _serverThread;
+        private bool _started;
         private Socket? _requestSocket;
         private Socket? _responseSocket;
 
-        private Thread _dhcpServerThread;
-        private bool _islistening;
-        private IPAddress _serverAddress;
-        private IPAddress _mask;
-        private Timer _timer;
-        private ushort _timeToLeave;
+        /// <summary>
+        /// Creates a new instance of <see cref="DhcpServer"/> that listens on the specified address.
+        /// </summary>
+        /// <param name="serverAddress">The address this server listens on.</param>
+        /// <param name="logger">An optional <see cref="ILogger"/>.</param>
+        /// <remarks>
+        /// The <see cref="SubnetMask"/> will be set to 255.255.255.0.
+        /// </remarks>
+        public DhcpServer(IPAddress serverAddress, ILogger? logger = null): this(serverAddress, DefaultSubnetMask, logger) { }
 
-        public DhcpServer(ILogger? logger = null)
+        /// <summary>
+        /// Creates a new instance of <see cref="DhcpServer"/> that listens on the specified address.
+        /// </summary>
+        /// <param name="serverAddress">The address this server listens on.</param>
+        /// <param name="subnetMask">The subnet mask that will be assigned to clients.</param>
+        /// <param name="logger">An optional <see cref="ILogger"/>.</param>
+        /// <remarks>
+        /// While the subnet mask can be specified the address pool will only support 254 addresses.
+        /// </remarks>
+        public DhcpServer(IPAddress serverAddress, IPAddress subnetMask, ILogger? logger = null)
         {
+            _addressPool = new IPAddressPool(serverAddress);
             _logger = logger;
+
+            ServerAddress = serverAddress;
+            SubnetMask = subnetMask;
         }
 
-        // TODO: This should be moved to Start
+        ~DhcpServer()
+        {
+            Dispose(false);
+        }
+
         /// <summary>
         /// Gets or sets the captive portal URL. If null or empty, this will be ignored.
         /// </summary>
-        public string CaptivePortalUrl { get; set; }
+        public string? CaptivePortalUrl { get; set; }
 
-        private string FormatLogMessage(string message) => $"[{nameof(DhcpServer)}] {message}";
+        /// <summary>
+        /// Gets or sets the lease time.
+        /// </summary>
+        public TimeSpan LeaseTime { get; set; } = TimeSpan.FromHours(4);
 
-        private void HandleDiscoverMessage(Message message)
+        private Socket Request
         {
-            // TODO: Need to check this logic
-            // TODO: Should check pool for previous address matched to MAC address
-            if (!_addressPool.IsAddressAvailable())
+            get
             {
-                Log(LogLevel.Trace, "No more addresses available.");
-                return;
-            }
+                if (_requestSocket is null)
+                {
+                    lock (_lock)
+                    {
+                        _requestSocket ??= new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    }
+                }
 
-            IPAddress? yourIp = null;
-
-            // Do we have an option asking for a specific IP address?
-            var requestedIpAddress = message.RequestedIPAddress;
-            if (!requestedIpAddress.Equals(IPAddress.Any) && _addressPool.IsLeasedTo(requestedIpAddress, message.HardwareAddressString))
-            {
-                yourIp = requestedIpAddress;
-            }
-
-            yourIp ??= _addressPool.Get();
-
-            if (yourIp is not null)
-            {
-                var offer = MessageBuilder.CreateOffer(message, _serverAddress, yourIp, _mask, TimeSpan.FromMinutes(30)).GetBytes();
-                _responseSocket.Send(offer);
-            }
-            else
-            {
-                Log(LogLevel.Trace, "No more addresses available.");
+                return _requestSocket;
             }
         }
 
-        private void HandleRequestMessage(Message message)
+        private Socket Response
         {
-            // TODO: Need to check this logic
+            get
+            {
+                if (_responseSocket is null)
+                {
+                    lock (_lock)
+                    {
+                        _responseSocket ??= new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    }
+                }
 
-            /*
-               ---------------------------------------------------------------------
-               |              |INIT-REBOOT  |SELECTING    |RENEWING     |REBINDING |
-               ---------------------------------------------------------------------
-               |broad/unicast |broadcast    |broadcast    |unicast      |broadcast |
-               |server-ip     |MUST NOT     |MUST         |MUST NOT     |MUST NOT  |
-               |requested-ip  |MUST         |MUST         |MUST NOT     |MUST NOT  |
-               |ciaddr        |zero         |zero         |IP address   |IP address|
-               ---------------------------------------------------------------------
-            */
+                return _responseSocket;
+            }
+        }
 
-            // TODO: Handle this case -> https://github.com/jpmikkers/DHCPServer/blob/d224f1c37dcb9b4352cd3741be46a8e3eee5dcb9/DHCPServer/Library/DHCPServer.cs#L914
-            // no server identifier: the message is a request to verify or extend an existing lease
-            // Received REQUEST without server identifier, client is INIT-REBOOT, RENEWING or REBINDING
+        /// <summary>
+        /// Gets the server address.
+        /// </summary>
+        public IPAddress ServerAddress { get; }
 
-            // Check the request is for us
-            var serverIdentifier = message.ServerIdentifier;
-            if (!serverIdentifier.Equals(_serverAddress) && !serverIdentifier.Equals(IPAddress.Any))
+        /// <summary>
+        /// Gets the subnet mask.
+        /// </summary>
+        public IPAddress SubnetMask { get; }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (_disposed)
             {
                 return;
             }
 
-            var requestSucceeded = _addressPool.IsLeased(message.RequestedIPAddress)
-                ? _addressPool.Renew(message.RequestedIPAddress, message.HardwareAddressString)
-                : _addressPool.Request(message.RequestedIPAddress, message.HardwareAddressString, TimeSpan.FromMinutes(30));
+            lock (_lock)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
 
-            _responseSocket.Send(requestSucceeded
-                ? MessageBuilder.CreateAck(message, _serverAddress, message.RequestedIPAddress, _mask, TimeSpan.FromMinutes(30), new StringOption(OptionCode.CaptivePortal, CaptivePortalUrl)).GetBytes()
-                : MessageBuilder.CreateNak(message, _serverAddress).GetBytes());
+                Dispose(true);
+                GC.SuppressFinalize(this);
+            }
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            Stop();
+
+            if (disposing)
+            {
+
+            }
+
+            _disposed = true;
+        }
+
+        private static string FormatLogMessage(string message) => $"[{nameof(DhcpServer)}] {message}";
+
+        private IOption[] GetOptions()
+        {
+            return !string.IsNullOrEmpty(CaptivePortalUrl) ? new[] { (IOption) new StringOption(OptionCode.CaptivePortal, CaptivePortalUrl!) } : new IOption[0];
+        }
+
+        private void HandleDiscoverMessage(Message request)
+        {
+            if (!request.GatewayIPAddress.Equals(IPAddress.Any))
+            {
+                // We only respond to requests on our subnet
+                return;
+            }
+
+            var leaseTime = request.LeaseTime > TimeSpan.Zero && request.LeaseTime <= LeaseTime ? request.LeaseTime : LeaseTime;
+            IPAddress? yourIPAddress = null;
+
+            // If the requested IP address is leased to this client use it and the time remaining on the existing lease
+            if (_addressPool.IsLeasedTo(request.RequestedIPAddress, request.HardwareAddressString, out var existingLease))
+            {
+                leaseTime = existingLease.Remaining;
+                yourIPAddress = request.RequestedIPAddress;
+            }
+
+            yourIPAddress ??= _addressPool.GetAvailableAddress();
+
+            if (yourIPAddress is not null)
+            {
+                SendResponse(MessageBuilder.CreateOffer(request, ServerAddress, yourIPAddress, SubnetMask, leaseTime, GetOptions()));
+            }
+            else
+            {
+                Log(LogLevel.Warning, "No more addresses available.");
+            }
+        }
+
+        private void HandleReleaseMessage(Message message)
+        {
+            _addressPool.Release(message.ClientIPAddress, message.HardwareAddressString);
+        }
+
+        private void HandleRequestMessage(Message request)
+        {
+            var serverIdentifier = request.ServerIdentifier;
+            if (serverIdentifier.Equals(IPAddress.Any))
+            {
+                // Received REQUEST without server identifier, client is INIT-REBOOT, RENEWING or REBINDING
+                if (request.ClientIPAddress.Equals(IPAddress.Any))
+                {
+#if DEBUG
+                    Log(LogLevel.Trace, "Received REQUEST without ciaddr, client is INIT-REBOOT");
+#endif
+
+                    var lease = _addressPool.Request(request.RequestedIPAddress, request.HardwareAddressString, LeaseTime);
+
+                    SendResponse(lease is null
+                        ? MessageBuilder.CreateNak(request, ServerAddress)
+                        : MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions()));
+                }
+                else
+                {
+#if DEBUG
+                    Log(LogLevel.Trace, $"Received REQUEST with ciaddr, client is RENEWING or REBINDING");
+#endif
+
+                    var lease = _addressPool.Renew(request.RequestedIPAddress, request.HardwareAddressString);
+
+                    // TODO: Should be sending unicast OR broadcast depending on RENEWING or REBINDING respectively
+                    // The only difference from these two states is how the client sent the request unicast (RENEWING) or broadcast (REBINDING)
+                    // The `flags` field has be broadcast bit but it does not always seem to get set based on these states (it's not directly related)
+                    // So for that reason I'm opting to default to sending responses via broadcast
+
+                    SendResponse(lease is not null && lease.Remaining > TimeSpan.Zero
+                        ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions())
+                        : MessageBuilder.CreateNak(request, ServerAddress));
+                }
+            }
+            else if (serverIdentifier.Equals(ServerAddress))
+            {
+#if DEBUG
+                Log(LogLevel.Trace, "Received REQUEST with server identifier, client is SELECTING");
+#endif
+
+                var lease = _addressPool.Request(request.RequestedIPAddress, request.HardwareAddressString, LeaseTime);
+
+                SendResponse(lease is not null && lease.Remaining > TimeSpan.Zero
+                    ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions())
+                    : MessageBuilder.CreateNak(request, ServerAddress));
+            }
         }
 
         private void Log(LogLevel logLevel, string message, Exception? exception = null)
@@ -123,7 +257,7 @@ namespace CCSWE.nanoFramework.DhcpServer
             if (_logger is null)
             {
 #if !DEBUG
-                if (logLevel > LogLevel.Trace)
+                if (logLevel > LogLevel.Debug)
                 {
 #endif
                     Debug.WriteLine(FormatLogMessage(message));
@@ -136,137 +270,28 @@ namespace CCSWE.nanoFramework.DhcpServer
             _logger.Log(logLevel, exception, FormatLogMessage(message));
         }
 
-        private void LogMessage(Message message)
+        private void SendResponse(Message message) => SendResponse(message, BroadcastEndpoint);
+
+        private void SendResponse(Message message, IPAddress destination) => SendResponse(message, new IPEndPoint(destination, ClientPort));
+
+        private void SendResponse(Message message, IPEndPoint destination)
         {
-#if !DEBUG
-            return;
-#endif
+            Log(LogLevel.Trace, message.ToString());
 
-            // TODO: Change this to a ToString on the message?
-
-            var messageType = message.MessageType.AsString();
-            var transactionId = message.TransactionId.ToString("X");
-
-            if (!string.IsNullOrEmpty(message.HostName))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Host name: {message.HostName}");
-            }
-
-            Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Hardware address: {message.HardwareAddressString}");
-
-            if (message.LeaseTime > TimeSpan.Zero)
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Lease time: {message.LeaseTime}");
-            }
-
-            if (!message.ClientIPAddress.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address: {message.ClientIPAddress}");
-            }
-
-            if (!message.YourIPAddress.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Your IP address: {message.YourIPAddress}");
-            }
-
-            if (!message.ServerIPAddress.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address:  {message.ClientIPAddress}");
-            }
-
-            if (!message.GatewayIPAddress.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Client IP address:  {message.ClientIPAddress}");
-            }
-
-            if (!message.RequestedIPAddress.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Requested IP address: {message.RequestedIPAddress}");
-            }
-
-            if (!message.ServerIdentifier.Equals(IPAddress.Any))
-            {
-                Log(LogLevel.Trace, $"[{messageType}] ({transactionId}) Server identifier: {message.ServerIdentifier}");
-            }
+            Response.SendTo(message.GetBytes(), destination);
         }
 
-        /// <summary>
-        /// Starts the DHCP Server to start listening.
-        /// </summary>
-        /// <returns>Returns false in case of error.</returns>
-        /// <param name="serverAddress">The server IP address.</param>
-        /// <param name="mask">The mask used for distributing the IP address.</param>
-        /// <param name="timeToLeave">Default time to leave for bail expiration.</param>
-        /// <exception cref="SocketException">Socket exception occurred.</exception>
-        /// <exception cref="Exception">An exception occurred while setting up the DHCP listener or sender.</exception>
-        public bool Start(IPAddress serverAddress, IPAddress mask, ushort timeToLeave = 1200)
-        {
-            if (_requestSocket is null)
-            {
-                try
-                {
-                    _addressPool = new IPAddressPool(serverAddress);
-                    _serverAddress = serverAddress;
-                    _mask = mask;
-
-                    _requestSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    _requestSocket.Bind(new IPEndPoint(IPAddress.Loopback, ServerPort)); // TODO: This was broadcast instead of loopback
-
-                    _responseSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    _responseSocket.Bind(new IPEndPoint(_serverAddress, 0));
-                    _responseSocket.SetSocketOption(SocketOptionLevel.Udp, SocketOptionName.Broadcast, true);
-                    _responseSocket.Connect(new IPEndPoint(Broadcast, ClientPort));
-
-                    _timeToLeave = timeToLeave;
-
-                    // TODO: Need to clean this up when stopped
-                    // TODO: Period should be one minute?
-                    _timer = new Timer(_ => { _addressPool.Evict(); }, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-
-                    // start server thread
-                    _dhcpServerThread = new Thread(RunServer);
-                    _dhcpServerThread.Start();
-
-                    return true;
-                }
-                catch (SocketException ex)
-                {
-                    Log(LogLevel.Error, $"Socket exception occurred. Code: {ex.ErrorCode} Message: {ex.Message}", ex);
-                }
-                catch (Exception ex)
-                {
-                    Log(LogLevel.Error, $"Exception occurred. Message: {ex.Message}", ex);
-                }
-
-                return false;
-            }
-
-            // It's already started
-            return true;
-        }
-
-        /// <summary>
-        /// Stops the listening.
-        /// </summary>
-        public void Stop()
-        {
-            _islistening = false;
-        }
-
-        private void RunServer()
+        private void ServerThread()
         {
             Log(LogLevel.Information, "Started");
 
-            _islistening = true;
+            var buffer = new byte[768];
 
-            // setup buffer to read data from socket
-            var buffer = new byte[1024];
-
-            while (_islistening)
+            while (_started)
             {
                 try
                 {
-                    var bytes = _requestSocket.Receive(buffer);
+                    var bytes = Request.Receive(buffer);
 
                     if (bytes <= 0)
                     {
@@ -275,29 +300,37 @@ namespace CCSWE.nanoFramework.DhcpServer
 
                     var message = MessageBuilder.Parse(buffer);
 
-                    // Only response to requests
+                    // Only respond to requests
                     if (message.Operation != Operation.BootRequest)
                     {
                         continue;
                     }
 
-                    LogMessage(message);
+                    Log(LogLevel.Trace, message.ToString());
 
-                    // TODO: Handle Release and Renew
-                    // TODO: Handle lease time
+                    // TODO: Handle Inform
                     switch (message.MessageType)
                     {
                         case MessageType.Discover:
-                            HandleDiscoverMessage(message);
-                            break;
-
+                            {
+                                HandleDiscoverMessage(message);
+                                break;
+                            }
+                        case MessageType.Release:
+                            {
+                                HandleReleaseMessage(message);
+                                break;
+                            }
                         case MessageType.Request:
-                            HandleRequestMessage(message);
-                            break;
-
+                            {
+                                HandleRequestMessage(message);
+                                break;
+                            }
                         default:
-                            Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType}' received from host: {message.HostName}");
-                            break;
+                            {
+                                Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType.AsString()}' received from host: {message.HostName}");
+                                break;
+                            }
                     }
                 }
                 catch (Exception exception)
@@ -307,50 +340,108 @@ namespace CCSWE.nanoFramework.DhcpServer
                 }
             }
 
-            try
-            {
-                _requestSocket.Close();
-            }
-            catch
-            {
-                //// Make sure we catch everything coming in
-            }
-
-            try
-            {
-                _responseSocket.Close();
-            }
-            catch
-            {
-                //// Make sure we catch everything coming in
-            }
-
-            _requestSocket = null;
-            _responseSocket = null;
-
             Log(LogLevel.Information, "Stopped");
         }
 
-        private byte[] GetAdditionalOptions()
+        /// <summary>
+        /// Starts the DHCP server.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> if started successfully; otherwise <see langword="false"/>.
+        /// </returns>
+        public bool Start()
         {
-            byte[] additionalOptions = null;
-
-            if (!string.IsNullOrEmpty(CaptivePortalUrl))
+            if (!_started)
             {
-                var encoded = Encoding.UTF8.GetBytes(CaptivePortalUrl);
-                additionalOptions = new byte[2 + encoded.Length];
-                additionalOptions[0] = (byte)OptionCode.CaptivePortal;
-                additionalOptions[1] = (byte)CaptivePortalUrl.Length;
-                encoded.CopyTo(additionalOptions, 2);
+                lock (_lock)
+                {
+                    if (_started)
+                    {
+                        return true;
+                    }
+
+                    _started = true;
+
+                    try
+                    {
+                        Request.Bind(new IPEndPoint(ServerAddress, ServerPort));
+
+                        Response.Bind(new IPEndPoint(ServerAddress, 0));
+                        Response.SetSocketOption(SocketOptionLevel.Udp, SocketOptionName.Broadcast, true);
+                        Response.Connect(new IPEndPoint(Broadcast, ClientPort));
+
+                        _addressPoolTimer = new Timer(_ => { _addressPool.Evict(); }, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+
+                        _serverThread = new Thread(ServerThread);
+                        _serverThread.Start();
+
+                        return true;
+                    }
+                    catch (SocketException ex)
+                    {
+                        Log(LogLevel.Error, $"Socket exception occurred. Code: {ex.ErrorCode} Message: {ex.Message}", ex);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log(LogLevel.Error, $"Exception occurred. Message: {ex.Message}", ex);
+                    }
+
+                    Stop();
+                }
             }
 
-            return additionalOptions;
+            return _started;
         }
 
-        /// <inheritdoc/>
-        public void Dispose()
+        /// <summary>
+        /// Stops the DHCP server.
+        /// </summary>
+        public void Stop()
         {
-            Stop();
+            lock (_lock)
+            {
+                if (_addressPoolTimer is not null)
+                {
+                    try
+                    {
+                        _addressPoolTimer.Change(0, 0);
+                        _addressPoolTimer.Dispose();
+                        _addressPoolTimer = null;
+                    }
+                    catch (Exception e)
+                    {
+                        Log(LogLevel.Error, $"Error stopping address pool timer: {e.Message}", e);
+                    }
+                }
+
+                if (_requestSocket is not null)
+                {
+                    try
+                    {
+                        _requestSocket.Close();
+                        _requestSocket = null;
+                    }
+                    catch (Exception e)
+                    {
+                        Log(LogLevel.Error, $"Error closing request socket: {e.Message}", e);
+                    }
+                }
+
+                if (_responseSocket is not null)
+                {
+                    try
+                    {
+                        _responseSocket.Close();
+                        _responseSocket = null;
+                    }
+                    catch (Exception e)
+                    {
+                        Log(LogLevel.Error, $"Error closing response socket: {e.Message}", e);
+                    }
+                }
+
+                _started = false;
+            }
         }
     }
 }

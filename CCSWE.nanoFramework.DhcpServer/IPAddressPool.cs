@@ -14,6 +14,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         private const ushort AddressPoolSize = 254;
 
         private readonly Hashtable _leases = new(AddressPoolSize);
+        private readonly object _lock = new();
         private readonly IPAddress _serverAddress;
 
         public IPAddressPool(IPAddress serverAddress)
@@ -26,58 +27,59 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         public void Evict()
         {
-            var keyCollection = _leases.Keys;
-            var keys = new byte[keyCollection.Count];
-
-            keyCollection.CopyTo(keys, 0);
-
-            foreach (var key in keys)
+            lock (_lock)
             {
-                if (key <= 0)
-                {
-                    continue;
-                }
+                var keyCollection = _leases.Keys;
+                var keys = new byte[keyCollection.Count];
 
-                if (_leases[key] is IPAddressLease lease && lease.IsExpired())
+                keyCollection.CopyTo(keys, 0);
+
+                foreach (var key in keys)
                 {
-                    _leases.Remove(key);
+                    if (key <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (_leases[key] is IPAddressLease lease && lease.IsExpired())
+                    {
+                        Debug.WriteLine($"Evicting {lease.ClientAddress}");
+
+                        _leases.Remove(key);
+                    }
                 }
             }
         }
 
-        public IPAddress? Get()
+        public IPAddress? GetAvailableAddress()
         {
-            var targetAddress = _serverAddress.GetAddressBytes();
-
-            // Always start the search at 1 for simplicity
-            for (byte i = 1; i < 255; i++)
+            lock (_lock)
             {
-                targetAddress[3] = i;
+                var targetAddress = _serverAddress.GetAddressBytes();
 
-                if (!_leases.Contains(targetAddress[3]))
+                // Always start the search at 1 for simplicity
+                for (byte i = 1; i < 255; i++)
                 {
-                    return new IPAddress(targetAddress);
-                }
-            }
+                    targetAddress[3] = i;
 
-            return null;
+                    if (!_leases.Contains(targetAddress[3]))
+                    {
+                        return new IPAddress(targetAddress);
+                    }
+                }
+
+                return null;
+            }
         }
 
         private byte GetKey(IPAddress clientAddress)
         {
-            Debug.WriteLine($"GetKey: {clientAddress}");
-
             var clientAddressBytes = clientAddress.GetAddressBytes();
-            var serverAddressBytes = _serverAddress.GetAddressBytes();
 
-            Ensure.IsInRange(nameof(clientAddress), clientAddressBytes[0] == serverAddressBytes[0] && clientAddressBytes[1] == serverAddressBytes[1] && clientAddressBytes[2] == serverAddressBytes[2]);
+            Ensure.IsValid(nameof(clientAddress), IsValidAddress(clientAddressBytes, _serverAddress.GetAddressBytes()));
 
             return clientAddressBytes[3];
         }
-
-        public bool IsAddressAvailable() => Available < AddressPoolSize;
-
-        public bool IsLeased(IPAddress clientAddress) => _leases.Contains(GetKey(clientAddress));
 
         /// <summary>
         /// Checks if the IP address is leased to the specified hardware address.
@@ -87,7 +89,6 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// <returns><see langword="true"/> if the <paramref name="clientAddress"/> is leased to the <paramref name="hardwareAddress"/>; otherwise <see langword="false"/>.</returns>
         public bool IsLeasedTo(IPAddress clientAddress, string hardwareAddress) => IsLeasedTo(clientAddress, hardwareAddress, out _);
 
-
         /// <summary>
         /// Checks if the IP address is leased to the specified hardware address.
         /// </summary>
@@ -95,8 +96,15 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// <param name="hardwareAddress">The hardware address to check.</param>
         /// <param name="lease">The matching <see cref="IPAddressLease"/> if leased.</param>
         /// <returns><see langword="true"/> if the <paramref name="clientAddress"/> is leased to the <paramref name="hardwareAddress"/>; otherwise <see langword="false"/>.</returns>
-        private bool IsLeasedTo(IPAddress clientAddress, string hardwareAddress, [NotNullWhen(true)] out IPAddressLease? lease)
+        public bool IsLeasedTo(IPAddress clientAddress, string hardwareAddress, [NotNullWhen(true)] out IPAddressLease? lease)
         {
+            lease = null;
+
+            if (!IsValidAddress(clientAddress))
+            {
+                return false;
+            }
+
             lease = _leases[GetKey(clientAddress)] as IPAddressLease;
 
             if (lease is null)
@@ -107,41 +115,62 @@ namespace CCSWE.nanoFramework.DhcpServer
             return lease.HardwareAddress == hardwareAddress;
         }
 
-        public void Release(IPAddress clientAddress)
+        private bool IsValidAddress(IPAddress clientAddress)
         {
-            _leases.Remove(GetKey(clientAddress));
+            return IsValidAddress(clientAddress.GetAddressBytes(), _serverAddress.GetAddressBytes());
         }
-        
-        public bool Renew(IPAddress clientAddress, string hardwareAddress)
+
+        private static bool IsValidAddress(byte[] clientAddress, byte[] serverAddress)
         {
-            if (!IsLeasedTo(clientAddress, hardwareAddress, out var lease))
+
+            return clientAddress[0] == serverAddress[0] && clientAddress[1] == serverAddress[1] && clientAddress[2] == serverAddress[2];
+        }
+
+        public void Release(IPAddress clientAddress, string hardwareAddress)
+        {
+            lock (_lock)
             {
-                return false;
+                if (!IsLeasedTo(clientAddress, hardwareAddress))
+                {
+                    return;
+                }
+
+                _leases.Remove(GetKey(clientAddress));
+            }
+        }
+
+        public IPAddressLease? Renew(IPAddress clientAddress, string hardwareAddress)
+        {
+            lock (_lock)
+            {
+                if (!IsLeasedTo(clientAddress, hardwareAddress, out var lease))
+                {
+                    return null;
+                }
+
+                lease.Renew();
+
+                return lease;
+            }
+        }
+
+        public IPAddressLease? Request(IPAddress clientAddress, string hardwareAddress, TimeSpan leaseTime)
+        {
+            if (!IsValidAddress(clientAddress))
+            {
+                return null;
             }
 
-            lease.Renew();
-            
-            return true;
-        }
-
-        public bool Request(IPAddress clientAddress, string hardwareAddress, TimeSpan leaseTime)
-        {
-            var key = GetKey(clientAddress);
-            // TODO: Should not be renewing here. Renewal requires a specific call.
-            if (_leases.Contains(key))
+            lock (_lock)
             {
-                return Renew(clientAddress, hardwareAddress);
+                if (!IsLeasedTo(clientAddress, hardwareAddress, out var lease))
+                {
+                    lease = new IPAddressLease(clientAddress, hardwareAddress, leaseTime);
+                    _leases[GetKey(clientAddress)] = lease;
+                }
+
+                return lease;
             }
-
-            _leases[key] = new IPAddressLease(clientAddress, hardwareAddress, leaseTime);
-
-            return true;
-        }
-
-        public bool TryGet([NotNullWhen(true)] out IPAddress? address)
-        {
-            address = Get();
-            return address is not null;
         }
     }
 }

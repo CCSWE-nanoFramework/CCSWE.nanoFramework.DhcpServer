@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace CCSWE.nanoFramework.DhcpServer.Options
+﻿namespace CCSWE.nanoFramework.DhcpServer.Options
 {
     internal abstract class OptionBase: IOption
     {
@@ -37,6 +35,6 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
 
         public abstract override string ToString();
 
-        protected string ToString(object value) => $"Option [{Code}] == {value} [{Length}]";
+        protected string ToString(object value) => $"{Code}: {value}";
     }
 }

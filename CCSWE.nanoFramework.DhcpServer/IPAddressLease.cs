@@ -3,7 +3,6 @@ using System.Net;
 
 namespace CCSWE.nanoFramework.DhcpServer
 {
-    // TODO: This could be DhcpClient and offered states could be handled here as well as leased
     internal class IPAddressLease
     {
         /// <summary>
@@ -11,7 +10,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// </summary>
         private int _hashCode;
 
-        public IPAddressLease(IPAddress clientAddress, string hardwareAddress, DateTime expires) : this(clientAddress, hardwareAddress, expires, TimeSpan.MaxValue)
+        public IPAddressLease(IPAddress clientAddress, string hardwareAddress, DateTime expiresAt) : this(clientAddress, hardwareAddress, expiresAt, TimeSpan.MaxValue)
         {
 
         }
@@ -21,21 +20,30 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         }
 
-        private IPAddressLease(IPAddress clientAddress, string hardwareAddress, DateTime expires, TimeSpan leaseTime)
+        private IPAddressLease(IPAddress clientAddress, string hardwareAddress, DateTime expiresAt, TimeSpan leaseTime)
         {
             ClientAddress = clientAddress;
-            Expires = expires;
+            ExpiresAt = expiresAt;
             HardwareAddress = hardwareAddress;
             LeaseTime = leaseTime;
         }
 
         public IPAddress ClientAddress { get; }
 
-        public DateTime Expires { get; private set; }
+        public DateTime ExpiresAt { get; private set; }
 
         public string HardwareAddress { get; }
 
         public TimeSpan LeaseTime { get; }
+
+        public TimeSpan Remaining
+        {
+            get
+            {
+                var remaining = ExpiresAt - DateTime.UtcNow;
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
 
         public override bool Equals(object? obj)
         {
@@ -59,8 +67,8 @@ namespace CCSWE.nanoFramework.DhcpServer
             // ReSharper restore NonReadonlyMemberInGetHashCode
         }
 
-        public bool IsExpired() => DateTime.UtcNow > Expires;
+        public bool IsExpired() => DateTime.UtcNow > ExpiresAt;
 
-        public void Renew() => Expires = DateTime.UtcNow + LeaseTime;
+        public void Renew() => ExpiresAt = DateTime.UtcNow + LeaseTime;
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net;
+using System.Text;
 using CCSWE.nanoFramework.DhcpServer.Options;
 
 namespace CCSWE.nanoFramework.DhcpServer
@@ -187,6 +188,88 @@ namespace CCSWE.nanoFramework.DhcpServer
             Converter.CopyTo(Options.GetBytes(), data, MessageIndex.Options);
 
             return data;
+        }
+
+        public override string ToString()
+        {
+            var direction = Operation.BootReply == Operation ? "->" : "<-";
+            var transactionId = TransactionId.ToString("X");
+            var stringBuilder = new StringBuilder();
+
+            stringBuilder.Append($"{direction} {MessageType.AsString()} ({transactionId}): {HardwareAddressString}");
+
+            if (!string.IsNullOrEmpty(HostName))
+            {
+                stringBuilder.Append($" {HostName}");
+            }
+
+            stringBuilder.Append($", flags: {Flags}");
+
+            if (!ClientIPAddress.Equals(IPAddress.Any))
+            {
+                stringBuilder.Append($", ciaddr: {ClientIPAddress}");
+            }
+
+            if (!YourIPAddress.Equals(IPAddress.Any))
+            {
+                stringBuilder.Append($", yiaddr: {YourIPAddress}");
+            }
+
+            if (!ServerIPAddress.Equals(IPAddress.Any))
+            {
+                stringBuilder.Append($", siaddr: {ServerIPAddress}");
+            }
+
+            if (!GatewayIPAddress.Equals(IPAddress.Any))
+            {
+                stringBuilder.Append($", giaddr: {GatewayIPAddress}");
+            }
+
+            if (LeaseTime > TimeSpan.Zero)
+            {
+                stringBuilder.Append($", lease: {(int)LeaseTime.TotalSeconds}s");
+            }
+
+            if (!RequestedIPAddress.Equals(IPAddress.Any))
+            {
+                stringBuilder.Append($", requested: {RequestedIPAddress}");
+            }
+
+            stringBuilder.Append($", server: {ServerIdentifier}");
+
+#if DEBUG
+            var firstOption = true;
+            foreach (var item in Options)
+            {
+                if (item is not IOption option)
+                {
+                    continue;
+                }
+
+                if ((OptionCode)option.Code is OptionCode.DhcpMessageType or OptionCode.HostName or OptionCode.LeaseTime or OptionCode.RequestedIPAddress or OptionCode.ServerIdentifier)
+                {
+                    continue;
+                }
+
+                stringBuilder.Append(", ");
+
+                if (firstOption)
+                {
+                    stringBuilder.Append("options: {");
+                }
+
+                firstOption = false;
+                stringBuilder.Append(option);
+            }
+
+            if (!firstOption)
+            {
+                stringBuilder.Append("}");
+            }
+#endif
+
+            return stringBuilder.ToString();
+
         }
     }
 }
