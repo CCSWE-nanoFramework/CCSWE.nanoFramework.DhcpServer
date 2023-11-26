@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using CCSWE.nanoFramework.DhcpServer.Options;
 using Microsoft.Extensions.Logging;
@@ -74,7 +75,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// <summary>
         /// Gets or sets the lease time.
         /// </summary>
-        public TimeSpan LeaseTime { get; set; } = TimeSpan.FromHours(4);
+        public TimeSpan LeaseTime { get; set; } = TimeSpan.FromHours(2);
 
         private Socket Request
         {
@@ -192,6 +193,18 @@ namespace CCSWE.nanoFramework.DhcpServer
             }
         }
 
+        private void HandleInformMessage(Message request)
+        {
+            if (!_addressPool.IsLeasedTo(request.ClientIPAddress, request.HardwareAddressString))
+            {
+                return;
+            }
+
+            var response = MessageBuilder.CreateAck(request, ServerAddress, request.ClientIPAddress, SubnetMask, TimeSpan.Zero, GetOptions());
+
+            SendResponse(response, request.ClientIPAddress);
+        }
+
         private void HandleReleaseMessage(Message message)
         {
             _addressPool.Release(message.ClientIPAddress, message.HardwareAddressString);
@@ -202,7 +215,6 @@ namespace CCSWE.nanoFramework.DhcpServer
             var serverIdentifier = request.ServerIdentifier;
             if (serverIdentifier.Equals(IPAddress.Any))
             {
-                // Received REQUEST without server identifier, client is INIT-REBOOT, RENEWING or REBINDING
                 if (request.ClientIPAddress.Equals(IPAddress.Any))
                 {
 #if DEBUG
@@ -274,10 +286,9 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private void SendResponse(Message message, IPAddress destination) => SendResponse(message, new IPEndPoint(destination, ClientPort));
 
-        private void SendResponse(Message message, IPEndPoint destination)
+        private void SendResponse(Message message, EndPoint destination)
         {
             Log(LogLevel.Trace, message.ToString());
-
             Response.SendTo(message.GetBytes(), destination);
         }
 
@@ -312,30 +323,34 @@ namespace CCSWE.nanoFramework.DhcpServer
                     switch (message.MessageType)
                     {
                         case MessageType.Discover:
-                            {
-                                HandleDiscoverMessage(message);
-                                break;
-                            }
+                        {
+                            HandleDiscoverMessage(message);
+                            break;
+                        }
+                        case MessageType.Inform:
+                        {
+                            HandleInformMessage(message);
+                            break;
+                        }
                         case MessageType.Release:
-                            {
-                                HandleReleaseMessage(message);
-                                break;
-                            }
+                        {
+                            HandleReleaseMessage(message);
+                            break;
+                        }
                         case MessageType.Request:
-                            {
-                                HandleRequestMessage(message);
-                                break;
-                            }
+                        {
+                            HandleRequestMessage(message);
+                            break;
+                        }
                         default:
-                            {
-                                Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType.AsString()}' received from host: {message.HostName}");
-                                break;
-                            }
+                        {
+                            Log(LogLevel.Trace, $"Unhandled message type '{message.MessageType.AsString()}' received from host: {message.HostName}");
+                            break;
+                        }
                     }
                 }
                 catch (Exception exception)
                 {
-                    //// Just pass this, we want to make sure that this loop always works properly.
                     Log(LogLevel.Error, $"Unhandled exception: {exception.Message}", exception);
                 }
             }

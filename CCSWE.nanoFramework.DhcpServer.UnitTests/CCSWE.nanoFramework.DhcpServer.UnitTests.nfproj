@@ -29,7 +29,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="IPAddressPoolTests.cs" />
+    <Compile Include="MessageBuilderTests.cs" />
+    <Compile Include="TestData\AckMessage.cs" />
+    <Compile Include="TestData\RequestMessage.cs" />
+    <Compile Include="TestData\OfferMessage.cs" />
+    <Compile Include="TestData\MagicCookie.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="TestData\DiscoverMessage.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib">

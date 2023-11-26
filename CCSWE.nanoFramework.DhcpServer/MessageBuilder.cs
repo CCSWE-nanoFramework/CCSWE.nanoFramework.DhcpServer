@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Net;
+using System.Text;
 using CCSWE.nanoFramework.DhcpServer.Options;
 
 namespace CCSWE.nanoFramework.DhcpServer
@@ -56,15 +58,19 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private static Message CreateResponse(Message request, MessageType responseType, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
         {
-            Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
-
             var message = CreateResponse(request, responseType, serverIdentifier, yourIPAddress);
             var requestType = request.MessageType;
 
             message.Options.Add(new IPAddressOption(OptionCode.SubnetMask, subnetMask));
-            message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
-            message.Options.Add(new TimeSpanOption(OptionCode.RenewalTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.5))));
-            message.Options.Add(new TimeSpanOption(OptionCode.RebindingTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.875))));
+
+            if (MessageType.Inform != requestType)
+            {
+                Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
+
+                message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
+                message.Options.Add(new TimeSpanOption(OptionCode.RenewalTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.5))));
+                message.Options.Add(new TimeSpanOption(OptionCode.RebindingTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.875))));
+            }
 
             foreach (var option in options)
             {
