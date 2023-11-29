@@ -5,7 +5,7 @@ namespace CCSWE.nanoFramework.DhcpServer
     /// <summary>
     /// The type of DHCP message.
     /// </summary>
-    public enum MessageType : byte
+    internal enum MessageType : byte
     {
         /// <summary>
         /// The message type operation has not been set.

@@ -38,16 +38,12 @@
     <Compile Include="Options\UnknownOption.cs" />
     <Compile Include="OptionCode.cs" />
     <Compile Include="DhcpServer.cs" />
-    <Compile Include="HardwareType.cs" />
     <Compile Include="Options\IOption.cs" />
     <Compile Include="Options\MessageTypeOption.cs" />
     <Compile Include="Options\IPAddressOption.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="CCSWE.nanoFramework.Core">
-      <HintPath>..\packages\CCSWE.nanoFramework.Core.0.2.21\lib\CCSWE.nanoFramework.Core.dll</HintPath>
-    </Reference>
     <Reference Include="mscorlib">
       <HintPath>..\packages\nanoFramework.CoreLibrary.1.15.5\lib\mscorlib.dll</HintPath>
     </Reference>

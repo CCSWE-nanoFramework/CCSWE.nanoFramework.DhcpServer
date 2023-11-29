@@ -11,14 +11,14 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
     /// <remarks>
     /// The <see cref="OptionCollection"/> behaves like a dictionary and does not support multiple instances of the same <see cref="OptionCode"/>.
     /// </remarks>
-    internal class OptionCollection: IEnumerable
+    public class OptionCollection: IEnumerable
     {
         private int _length;
         private readonly object _lock = new();
         private readonly Hashtable _options = new();
 
         /// <summary>
-        /// The length of the <see cref="OptionCollection"/>.
+        /// The length of the <see cref="OptionCollection"/> when serialized.
         /// </summary>
         public int Length => _length + 1;
 
@@ -39,10 +39,25 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             }
         }
 
+        /// <summary>
+        /// Determines whether the <see cref="OptionCollection"/> contains an <see cref="IOption"/>.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to check.</param>
+        /// <returns><see langword="true"/> if the <see cref="OptionCollection"/> contains the option; otherwise <see langword="false"/>.</returns>
         public bool Contains(byte code) => _options.Contains(code);
 
+        /// <summary>
+        /// Determines whether the <see cref="OptionCollection"/> contains an <see cref="IOption"/>.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to check.</param>
+        /// <returns><see langword="true"/> if the <see cref="OptionCollection"/> contains the option; otherwise <see langword="false"/>.</returns>
         public bool Contains(OptionCode code) => Contains((byte)code);
 
+        /// <summary>
+        /// Gets an <see cref="IOption"/>.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to get.</param>
+        /// <returns>An <see cref="IOption"/> if it exists; otherwise <see langword="null"/>.</returns>
         public IOption? Get(byte code)
         {
             lock (_lock)
@@ -51,6 +66,11 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             }
         }
 
+        /// <summary>
+        /// Gets an <see cref="IOption"/>.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to get.</param>
+        /// <returns>An <see cref="IOption"/> if it exists; otherwise <see langword="null"/>.</returns>
         public IOption? Get(OptionCode code) => Get((byte)code);
 
         /// <summary>
@@ -79,8 +99,13 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             }
         }
 
+        /// <inheritdoc />
         public IEnumerator GetEnumerator() => _options.Values.GetEnumerator();
 
+        /// <summary>
+        /// Gets the value set for an <see cref="IOption"/>.
+        /// </summary>
+        /// <returns>The value if set; otherwise <paramref name="defaultValue"/>.</returns>
         public IPAddress GetOrDefault(OptionCode code, IPAddress defaultValue)
         {
             if (!TryGet(code, out var option))
@@ -88,9 +113,18 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
                 return defaultValue;
             }
 
-            return option is not IPAddressOption knownOption ? defaultValue : knownOption.Deserialize();
+            if (option is not IPAddressOption knownOption)
+            {
+                throw new ArgumentException();
+            }
+
+            return knownOption.Deserialize();
         }
 
+        /// <summary>
+        /// Gets the value set for an <see cref="IOption"/>.
+        /// </summary>
+        /// <returns>The value if set; otherwise <paramref name="defaultValue"/>.</returns>
         public string GetOrDefault(OptionCode code, string defaultValue)
         {
             if (!TryGet(code, out var option))
@@ -98,9 +132,18 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
                 return defaultValue;
             }
 
-            return option is not StringOption knownOption ? defaultValue : knownOption.Deserialize();
+            if (option is not StringOption knownOption)
+            {
+                throw new ArgumentException();
+            }
+
+            return knownOption.Deserialize();
         }
 
+        /// <summary>
+        /// Gets the value set for an <see cref="IOption"/>.
+        /// </summary>
+        /// <returns>The value if set; otherwise <paramref name="defaultValue"/>.</returns>
         public TimeSpan GetOrDefault(OptionCode code, TimeSpan defaultValue)
         {
             if (!TryGet(code, out var option))
@@ -108,14 +151,22 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
                 return defaultValue;
             }
 
-            return option is not TimeSpanOption knownOption ? defaultValue : knownOption.Deserialize();
+            if (option is not TimeSpanOption knownOption)
+            {
+                throw new ArgumentException();
+            }
+
+            return knownOption.Deserialize();
         }
 
-        public static OptionCollection Parse(byte[] data)
+        internal static OptionCollection Parse(byte[] data)
         {
             var index = MessageIndex.Options;
 
-            Ensure.IsValid(nameof(data), data[index] != (byte)OptionCode.Pad);
+            if (data[index] == (byte)OptionCode.Pad)
+            {
+                throw new ArgumentException();
+            }
 
             var options = new OptionCollection();
 
@@ -165,6 +216,26 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             return new UnknownOption(code, data);
         }
 
+        /// <summary>
+        /// Remove an option from the collection.
+        /// </summary>
+        public void Remove(OptionCode code)
+        {
+            lock (_lock)
+            {
+                if (_options.Contains(code))
+                {
+                    _options.Remove(code);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tries to retrieve an <see cref="IOption"/> from the collection.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to retrieve.</param>
+        /// <param name="option">The <see cref="IOption"/>.</param>
+        /// <returns><see langword="true"/> if the option exists; otherwise <see langword="false"/>.</returns>
         public bool TryGet(byte code, [NotNullWhen(true)] out IOption? option)
         {
             option = Get(code);
@@ -172,6 +243,12 @@ namespace CCSWE.nanoFramework.DhcpServer.Options
             return option is not null;
         }
 
+        /// <summary>
+        /// Tries to retrieve an <see cref="IOption"/> from the collection.
+        /// </summary>
+        /// <param name="code">The <see cref="OptionCode"/> to retrieve.</param>
+        /// <param name="option">The <see cref="IOption"/>.</param>
+        /// <returns><see langword="true"/> if the option exists; otherwise <see langword="false"/>.</returns>
         public bool TryGet(OptionCode code, [NotNullWhen(true)] out IOption? option) => TryGet((byte)code, out option);
     }
 }

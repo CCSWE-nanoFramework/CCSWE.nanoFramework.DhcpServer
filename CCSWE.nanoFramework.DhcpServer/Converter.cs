@@ -22,7 +22,11 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// <inheritdoc cref="CopyTo(byte,byte[],int)"/>
         public static int CopyTo(byte[] source, byte[] destination, int destinationIndex)
         {
-            Ensure.IsValid(nameof(destinationIndex), destination.Length - destinationIndex >= source.Length);
+            if (destination.Length - destinationIndex < source.Length)
+            {
+                throw new ArgumentException();
+            }
+
             return CopyTo(source, 0, destination, destinationIndex, source.Length);
         }
 

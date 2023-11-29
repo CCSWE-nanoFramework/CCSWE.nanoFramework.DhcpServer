@@ -1,14 +1,12 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Net;
-using System.Text;
 using CCSWE.nanoFramework.DhcpServer.Options;
 
 namespace CCSWE.nanoFramework.DhcpServer
 {
     internal class MessageBuilder
     {
-        public static Message CreateAck(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
+        public static Message CreateAck(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, OptionCollection? options = null)
         {
             return CreateResponse(request, MessageType.Ack, serverIdentifier, yourIPAddress, subnetMask, leaseTime, options);
         }
@@ -18,7 +16,7 @@ namespace CCSWE.nanoFramework.DhcpServer
             return CreateResponse(request, MessageType.Nak, serverIdentifier, IPAddress.Any);
         }
 
-        public static Message CreateOffer(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
+        public static Message CreateOffer(Message request, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, OptionCollection? options = null)
         {
             return CreateResponse(request, MessageType.Offer, serverIdentifier, yourIPAddress, subnetMask, leaseTime, options);
         }
@@ -56,7 +54,7 @@ namespace CCSWE.nanoFramework.DhcpServer
             return message;
         }
 
-        private static Message CreateResponse(Message request, MessageType responseType, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, params IOption[] options)
+        private static Message CreateResponse(Message request, MessageType responseType, IPAddress serverIdentifier, IPAddress yourIPAddress, IPAddress subnetMask, TimeSpan leaseTime, OptionCollection? options = null)
         {
             var message = CreateResponse(request, responseType, serverIdentifier, yourIPAddress);
             var requestType = request.MessageType;
@@ -65,41 +63,37 @@ namespace CCSWE.nanoFramework.DhcpServer
 
             if (MessageType.Inform != requestType)
             {
-                Ensure.IsValid(nameof(leaseTime), leaseTime > TimeSpan.Zero);
+                if (leaseTime <= TimeSpan.Zero)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(leaseTime));
+                }
 
                 message.Options.Add(new TimeSpanOption(OptionCode.LeaseTime, leaseTime));
                 message.Options.Add(new TimeSpanOption(OptionCode.RenewalTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.5))));
                 message.Options.Add(new TimeSpanOption(OptionCode.RebindingTime, TimeSpan.FromSeconds((long)(leaseTime.TotalSeconds * 0.875))));
             }
 
-            foreach (var option in options)
+            if (options is not null)
             {
-                if (!message.Options.Contains(option.Code) && IsOptionAllowedInResponse(requestType, responseType, option))
+                foreach (var optionObject in options)
                 {
-                    message.Options.Add(option);
+                    if (optionObject is not IOption option)
+                    {
+                        continue;
+                    }
+
+                    if (!message.Options.Contains(option.Code) && IsOptionAllowedInResponse(requestType, responseType, option))
+                    {
+                        message.Options.Add(option);
+                    }
                 }
             }
-
-            /*
-            foreach (var value in request.Options)
-            {
-                if (value is not IOption option)
-                {
-                    continue;
-                }
-
-                if (!message.Options.Contains(option.Code) && IsOptionAllowedInResponse(requestType, responseType, option))
-                {
-                    message.Options.Add(option);
-                }
-            }
-            */
 
             return message;
         }
 
         /// <summary>
-        /// Checks if a given <see cref="IOption"/> is allowed in a response.
+        /// Checks if a given <see cref="IOption"/> is allowed in a response based on <paramref name="requestType"/> and/or <paramref name="responseType"/>.
         /// </summary>
         /// <param name="requestType">The request message type.</param>
         /// <param name="responseType">The response message type.</param>

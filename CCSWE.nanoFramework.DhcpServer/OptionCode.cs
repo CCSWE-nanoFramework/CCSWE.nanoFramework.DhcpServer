@@ -10,7 +10,7 @@
     /// 
     /// IANA list https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml
     /// </remarks>
-    internal enum OptionCode : byte
+    public enum OptionCode : byte
     {
         /// <summary>
         /// The pad option can be used to cause subsequent fields to align on

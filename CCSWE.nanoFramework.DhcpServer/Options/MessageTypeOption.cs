@@ -1,10 +1,15 @@
-﻿namespace CCSWE.nanoFramework.DhcpServer.Options
+﻿using System;
+
+namespace CCSWE.nanoFramework.DhcpServer.Options
 {
     internal class MessageTypeOption : OptionBase
     {
         public MessageTypeOption(byte[] data): base(OptionCode.DhcpMessageType, data)
         {
-            Ensure.IsValid(nameof(data), data.Length == 1);
+            if (data.Length != 1)
+            {
+                throw new ArgumentException();
+            }
         }
 
         public MessageTypeOption(MessageType messageType): this(new[] { (byte)messageType }) { }
