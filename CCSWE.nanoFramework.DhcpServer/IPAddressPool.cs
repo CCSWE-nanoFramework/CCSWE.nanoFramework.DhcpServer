@@ -91,7 +91,10 @@ namespace CCSWE.nanoFramework.DhcpServer
         {
             var clientAddressBytes = clientAddress.GetAddressBytes();
 
-            Ensure.IsValid(nameof(clientAddress), IsValidAddress(clientAddressBytes, _serverAddress.GetAddressBytes()));
+            if (!IsValidAddress(clientAddressBytes, _serverAddress.GetAddressBytes()))
+            {
+                throw new ArgumentException();
+            }
 
             return clientAddressBytes[3];
         }

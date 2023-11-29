@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using CCSWE.nanoFramework.DhcpServer.Options;
 using Microsoft.Extensions.Logging;
@@ -29,6 +27,7 @@ namespace CCSWE.nanoFramework.DhcpServer
         private bool _disposed;
         private readonly object _lock = new();
         private readonly ILogger? _logger;
+        private readonly OptionCollection _options = new();
         private Thread? _serverThread;
         private bool _started;
         private Socket? _requestSocket;
@@ -62,6 +61,9 @@ namespace CCSWE.nanoFramework.DhcpServer
             SubnetMask = subnetMask;
         }
 
+        /// <summary>
+        /// Finalizes the <see cref="DhcpServer"/>.
+        /// </summary>
         ~DhcpServer()
         {
             Dispose(false);
@@ -70,12 +72,55 @@ namespace CCSWE.nanoFramework.DhcpServer
         /// <summary>
         /// Gets or sets the captive portal URL. If null or empty, this will be ignored.
         /// </summary>
-        public string? CaptivePortalUrl { get; set; }
+        /// <remarks>A proper captive portal requires a valid SSL certificate and DNS resolution. See https://datatracker.ietf.org/doc/html/rfc8908</remarks>
+        public string? CaptivePortalUrl
+        {
+            get => _options.GetOrDefault(OptionCode.CaptivePortal, string.Empty);
+            set
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    _options.Remove(OptionCode.CaptivePortal);
+                }
+                else
+                {
+                    _options.Add(new StringOption(OptionCode.CaptivePortal, value!));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the DNS server. If set to null or 0.0.0.0, this will be ignored.
+        /// </summary>
+        public IPAddress? DnsServer
+        {
+            get
+            {
+                var dnsServer = _options.GetOrDefault(OptionCode.DomainNameServer, IPAddress.Any);
+                return !IPAddress.Any.Equals(dnsServer) ? dnsServer : null;
+            }
+            set
+            {
+                if (value is null || IPAddress.Any.Equals(value))
+                {
+                    _options.Remove(OptionCode.DomainNameServer);
+                }
+                else
+                {
+                    _options.Add(new IPAddressOption(OptionCode.DomainNameServer, value));
+                }
+            }
+        }
 
         /// <summary>
         /// Gets or sets the lease time.
         /// </summary>
         public TimeSpan LeaseTime { get; set; } = TimeSpan.FromHours(2);
+
+        /// <summary>
+        /// Gets the raw <see cref="OptionCollection"/>
+        /// </summary>
+        public OptionCollection Options => _options;
 
         private Socket Request
         {
@@ -158,11 +203,6 @@ namespace CCSWE.nanoFramework.DhcpServer
 
         private static string FormatLogMessage(string message) => $"[{nameof(DhcpServer)}] {message}";
 
-        private IOption[] GetOptions()
-        {
-            return !string.IsNullOrEmpty(CaptivePortalUrl) ? new[] { (IOption) new StringOption(OptionCode.CaptivePortal, CaptivePortalUrl!) } : new IOption[0];
-        }
-
         private void HandleDiscoverMessage(Message request)
         {
             if (!request.GatewayIPAddress.Equals(IPAddress.Any))
@@ -185,7 +225,7 @@ namespace CCSWE.nanoFramework.DhcpServer
 
             if (yourIPAddress is not null)
             {
-                SendResponse(MessageBuilder.CreateOffer(request, ServerAddress, yourIPAddress, SubnetMask, leaseTime, GetOptions()));
+                SendResponse(MessageBuilder.CreateOffer(request, ServerAddress, yourIPAddress, SubnetMask, leaseTime, _options));
             }
             else
             {
@@ -200,7 +240,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                 return;
             }
 
-            var response = MessageBuilder.CreateAck(request, ServerAddress, request.ClientIPAddress, SubnetMask, TimeSpan.Zero, GetOptions());
+            var response = MessageBuilder.CreateAck(request, ServerAddress, request.ClientIPAddress, SubnetMask, TimeSpan.Zero, _options);
 
             SendResponse(response, request.ClientIPAddress);
         }
@@ -225,7 +265,7 @@ namespace CCSWE.nanoFramework.DhcpServer
 
                     SendResponse(lease is null
                         ? MessageBuilder.CreateNak(request, ServerAddress)
-                        : MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions()));
+                        : MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, _options));
                 }
                 else
                 {
@@ -241,7 +281,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                     // So for that reason I'm opting to default to sending responses via broadcast
 
                     SendResponse(lease is not null && lease.Remaining > TimeSpan.Zero
-                        ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions())
+                        ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, _options)
                         : MessageBuilder.CreateNak(request, ServerAddress));
                 }
             }
@@ -254,7 +294,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                 var lease = _addressPool.Request(request.RequestedIPAddress, request.HardwareAddressString, LeaseTime);
 
                 SendResponse(lease is not null && lease.Remaining > TimeSpan.Zero
-                    ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, GetOptions())
+                    ? MessageBuilder.CreateAck(request, ServerAddress, lease.ClientAddress, SubnetMask, lease.Remaining, _options)
                     : MessageBuilder.CreateNak(request, ServerAddress));
             }
         }
@@ -272,7 +312,7 @@ namespace CCSWE.nanoFramework.DhcpServer
                 if (logLevel > LogLevel.Debug)
                 {
 #endif
-                    Debug.WriteLine(FormatLogMessage(message));
+                    Console.WriteLine(FormatLogMessage(message));
 #if !DEBUG
                 }
 #endif
@@ -319,7 +359,6 @@ namespace CCSWE.nanoFramework.DhcpServer
 
                     Log(LogLevel.Trace, message.ToString());
 
-                    // TODO: Handle Inform
                     switch (message.MessageType)
                     {
                         case MessageType.Discover:
