@@ -13,7 +13,7 @@ defaults:
 
 jobs:
   build-solution:
-    name: Build solution
+    name: Solution
     uses: CCSWE-nanoframework/actions-nanoframework/.github/workflows/build-solution.yml@master
     secrets: inherit
     with:
